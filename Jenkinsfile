@@ -1,68 +1,115 @@
 pipeline {
     agent any
+
     environment {
-        BACKEND_IMAGE = 'backend-image'
-        FRONTEND_IMAGE = 'frontend-image'
-        ECR_URL = '533083429922.dkr.ecr.ap-south-1.amazonaws.com'
+        // AWS credentials for accessing AWS ECR
+        AWS_ACCESS_KEY_ID = credentials('mycreds') // Jenkins credential ID for AWS Access Key
+        AWS_SECRET_ACCESS_KEY = credentials('mycreds') // Jenkins credential ID for AWS Secret Key
+        ECR_REPO_URI = '533083429922.dkr.ecr.ap-south-1.amazonaws.com/' // AWS ECR repository URI
+        EC2_IP = '13.233.87.108' // EC2 public IP
+        EC2_USER = 'ubunty' // EC2 SSH user
+        EC2_SSH_KEY = credentials('9f5768f7-f4cd-4345-bcb9-9480f7950ca3') // Use Jenkins SSH key credentials
     }
+
     stages {
-        stage('Checkout Code') {
+        stage('Clone Repository') {
             steps {
-                git branch: 'main', url: 'https://github.com/kushal-vithalani/my-repo.git'
+                git branch: 'main', url: 'https://github.com/kushal-vithalani/my-repo.gitt' // Replace with your repo URL
             }
         }
+
         stage('Build Backend Docker Image') {
             steps {
-                script {
-                    sh '''
-                    cd backend
-                    docker build -t $BACKEND_IMAGE .
-                    docker tag $BACKEND_IMAGE:latest $ECR_URL/$BACKEND_IMAGE:latest
-                    '''
+                dir('backend') {
+                    script {
+                        // Build the backend Docker image
+                        sh 'docker build -t backend-image .'
+                    }
                 }
             }
         }
+
         stage('Build Frontend Docker Image') {
             steps {
+                dir('frontend') {
+                    script {
+                        // Build the frontend Docker image
+                        sh 'docker build -t frontend-image .'
+                    }
+                }
+            }
+        }
+
+        stage('Login to AWS ECR') {
+            steps {
                 script {
+                    // Login to AWS ECR
                     sh '''
-                    cd frontend
-                    docker build -t $FRONTEND_IMAGE .
-                    docker tag $FRONTEND_IMAGE:latest $ECR_URL/$FRONTEND_IMAGE:latest
+                    aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $ECR_REPO_URI
                     '''
                 }
             }
         }
-        stage('Push Images to ECR') {
+
+        stage('Push Backend to AWS ECR') {
             steps {
                 script {
+                    // Tag and push the backend Docker image to AWS ECR
+                    sh 'docker tag backend-image:latest $ECR_REPO_URI/backend-image:latest'
+                    sh 'docker push $ECR_REPO_URI/backend-image:latest'
+                }
+            }
+        }
+
+        stage('Push Frontend to AWS ECR') {
+            steps {
+                script {
+                    // Tag and push the frontend Docker image to AWS ECR
+                    sh 'docker tag frontend-image:latest $ECR_REPO_URI/frontend-image:latest'
+                    sh 'docker push $ECR_REPO_URI/frontend-image:latest'
+                }
+            }
+        }
+
+        stage('Deploy Backend to EC2') {
+            steps {
+                script {
+                    // Deploy the backend container to EC2
                     sh '''
-                    aws ecr get-login-password --region YOUR_REGION | docker login --username AWS --password-stdin $ECR_URL
-                    docker push $ECR_URL/$BACKEND_IMAGE:latest
-                    docker push $ECR_URL/$FRONTEND_IMAGE:latest
+                    ssh -o StrictHostKeyChecking=no -i $EC2_SSH_KEY $EC2_USER@$EC2_IP <<EOF
+                    docker pull $ECR_REPO_URI/backend-image:latest
+                    docker stop backend-container || true
+                    docker rm backend-container || true
+                    docker run -d -p 5000:5000 --name backend-container $ECR_REPO_URI/backend-image:latest
+                    EOF
                     '''
                 }
             }
         }
-        stage('Deploy to EC2') {
+
+        stage('Deploy Frontend to EC2') {
             steps {
-                sshagent(['ec2-key']) {
+                script {
+                    // Deploy the frontend container to EC2
                     sh '''
-                    ssh -o StrictHostKeyChecking=no ubuntu@<EC2_IP> <<EOF
-                    docker pull $ECR_URL/$BACKEND_IMAGE:latest
-                    docker pull $ECR_URL/$FRONTEND_IMAGE:latest
-                    docker run -d -p 5000:5000 $ECR_URL/$BACKEND_IMAGE:latest
-                    docker run -d -p 80:80 $ECR_URL/$FRONTEND_IMAGE:latest
+                    ssh -o StrictHostKeyChecking=no -i $EC2_SSH_KEY $EC2_USER@$EC2_IP <<EOF
+                    docker pull $ECR_REPO_URI/frontend-image:latest
+                    docker stop frontend-container || true
+                    docker rm frontend-container || true
+                    docker run -d -p 80:80 --name frontend-container $ECR_REPO_URI/frontend-image:latest
                     EOF
                     '''
                 }
             }
         }
     }
+
     post {
-        always {
-            echo 'Pipeline Completed'
+        success {
+            echo "Deployment Successful!"
+        }
+        failure {
+            echo "Deployment Failed!"
         }
     }
 }
-
