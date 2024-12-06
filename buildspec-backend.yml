@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 533083429922.dkr.ecr.ap-south-1.amazonaws.com
+  build:
+    commands:
+      - echo Building the Docker image for backend...
+      - docker build -t backend-image ./backend
+      - docker tag  backend-image:latest 533083429922.dkr.ecr.ap-south-1.amazonaws.com/backend-image:latest
+  post_build:
+    commands:
+      - echo Pushing the Docker image to ECR...
+      - docker push docker push 533083429922.dkr.ecr.ap-south-1.amazonaws.com/backend-image:latest
+
+artifacts:
+  files:
+    - appspec.yml
+    - deploy-backend.sh
+
