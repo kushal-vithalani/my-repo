@@ -1,0 +1,15 @@
+version: 0.0
+os: linux
+files:
+  - source: deploy-backend.sh
+    destination: /home/ubuntu/scripts/
+  - source: deploy-frontend.sh
+    destination: /home/ubuntu/scripts/
+hooks:
+  AfterInstall:
+    - location: /home/ubuntu/scripts/deploy-backend.sh
+      timeout: 300
+      runas: root
+    - location: /home/ubuntu/scripts/deploy-frontend.sh
+      timeout: 300
+      runas: root
